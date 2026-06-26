@@ -69,3 +69,16 @@ grokking is common.
 - `convergence.py` — long shared run with a logged learning curve (this is what caught it).
 - `results_perlayer.json`, `results_perforward.json` — the premature 3–4k-step runs.
 - `conv.log` — the learning curve above. `mech_collar.json` — the collar run.
+
+## Addendum — does the regularizer improve the STRONG model? (not shown)
+
+Does the co-trained ("regularized") model outperform the attention specialist? On this task, no
+clean evidence — two regimes both tie:
+- Infinite fresh data: attn-only and shared@attn both hit 1.000 (ceiling, no headroom).
+- Fixed 256-example train set + held-out test (so attention CAN overfit): both memorize
+  (train 1.000) and neither generalizes (test ~0.026, chance) within 20k steps — delta -0.001.
+
+So the only demonstrated effect remains the SSM enablement (transfer). To see a regularization
+benefit on attention you must land in the grokking band -- enough data/steps that the specialist
+generalizes imperfectly, leaving room -- which needs a dataset-size x steps sweep this single run
+did not hit. Status: plausible but UNDEMONSTRATED.
