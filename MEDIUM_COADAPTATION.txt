@@ -1,0 +1,63 @@
+Co-Adaptation: One Set of Weights That Learned to Be Two Different Models
+
+I tried to make a transformer run as either attention or a cheap state-space mixer. It failed, then it didn't, and the reason it worked was the opposite of what I assumed.
+
+A transformer mixes tokens with attention: every token looks at every other token, exactly, at a cost that grows with length. State space models and their linear-attention cousins do the opposite — they keep a small running summary and update it as they go. Cheap, but lossy. The two are usually treated as a hard architectural choice you bake in at design time.
+
+I wanted to know whether one set of weights could do both — run as softmax attention sometimes and as a linear/state-space mixer other times, depending on a switch. Not two models. The same weights, two mechanisms.
+
+The setup
+
+The idea is small enough to test on a single GPU. Take a tiny transformer. In every layer, share all the weights — the query, key, and value projections, the output projection, the feed-forward block. The only thing that changes between modes is how the shared queries, keys, and values get combined: softmax attention in one mode, a causal linear attention in the other. Then train with what I'll call mechanism-dropout: every step, randomly pick which mode each layer runs in, so the weights have to work under either.
+
+To test it I used associative recall — show the model a list of key-value pairs, then ask it to recall the value for a given key. It's the cleanest task for separating the two mixers, because exact attention recalls perfectly while a fixed-size running state struggles to hold many pairs.
+
+The false negative
+
+I trained it for a few thousand steps and it flopped. The shared model scored near chance even when I forced it fully into attention mode — no better than the weak state-space mode. I wrote it up: the two mechanisms want incompatible things from the shared weights, the gradients conflict, and sharing collapses to the weaker one. A clean negative result.
+
+It was wrong, and the thing that exposed it was a single question: did you train until it stopped learning?
+
+I hadn't. I'd trained a fixed budget and read off the final number. So I trained it long and logged a learning curve, and the curve told a completely different story. Accuracy sat flat near zero through about four thousand steps — and then it didn't. Attention mode snapped to perfect at around step five thousand. The state-space mode stayed flat a while longer, then climbed, and by about twelve thousand steps both modes were at a hundred percent, and stayed there.
+
+This is grokking — the delayed, sudden generalization that small algorithmic tasks are famous for. My early runs had stopped inside the flat region, right before the jump, and I'd called the whole thing a failure. Lesson one, in retrospect obvious: on tasks where grokking happens, you cannot declare a negative until you've trained to a plateau.
+
+So the answer to the original question was yes. One set of fully shared weights, with no mode-specific parameters at all, can run as either mechanism and do the task perfectly in both.
+
+The surprise
+
+Then the interesting part. The state-space mixer, trained on its own, never learns this task — I let a dedicated one run for twenty thousand steps and it stayed flat at chance the entire time. On its own it simply cannot do the recall. But inside the shared model, co-trained alongside attention, the very same kind of mixer reached perfect accuracy.
+
+Co-training with attention gave the cheap mixer a capability it provably could not learn alone.
+
+That demanded an explanation, and I reached for the obvious one. Attention's accuracy crossed the line first, at step five thousand; the state-space mode followed at twelve thousand. So attention must learn the circuit first and the state-space path must inherit it. Attention scaffolds, the cheap path rides along.
+
+The correction
+
+That explanation was also wrong, and the flaw is a nice one to sit with. Crossing the accuracy threshold first is not the same as learning first. Attention might simply be a more forgiving way to read out a solution that the state-space gradients were busy building all along. "Reaches a readable answer soonest" and "did the learning" are different claims, and I had quietly swapped one for the other.
+
+There is a clean experiment that tells them apart. Train with attention alone — no state-space gradients, ever — and then read the resulting weights out in state-space mode. If attention had really built a mode-agnostic circuit, the state-space readout should work too. If it doesn't, then the state-space training in the shared model was doing real, necessary work.
+
+I ran it. Attention-only training reached perfect accuracy in attention mode and stayed at chance — about four percent — in state-space mode, across fifteen thousand steps. It never moved. Attention-trained weights are not state-space-readable.
+
+So the scaffolding story is dead. Neither mechanism's training, on its own, produces a model that can do both: attention alone gives weights the state-space mixer can't read, and state-space alone never learns the task at all. Only training them together, on the same weights, produces a solution both readouts can use.
+
+Co-adaptation
+
+That is the name I would give it. Not one mechanism teaching the other, but both mechanisms co-adapting the shared weights into a solution neither reaches alone. Each mode's gradients pull the weights toward something it can read; the joint constraint lands them somewhere both can. The cheap mixer ends up able to recall not because attention handed it a circuit, but because the shared optimization, under pressure from both readouts at once, found a representation that serves both.
+
+I want to be careful about one thing, because it is the part that isn't shown yet. This task can only demonstrate the effect in one direction — attention is already perfect on it alone, so there is no room to see the state-space training improving attention in return. Whether the two genuinely regularize each other, symmetrically, needs a different test: a pair of tasks with complementary weaknesses, one where the decaying-state bias wins and attention overfits, so you can watch the benefit flow both ways. That is the next experiment.
+
+What I take from it
+
+Three things, in rising order of how much they cost me.
+
+The smallest: grokking means fixed training budgets lie. Run the curve to a plateau before you trust a negative.
+
+The middle one: "X happened first" is a claim about causation, and a metric crossing a threshold first is not enough to support it. I conflated readout speed with learning order and built a whole story on it.
+
+The largest, and the most encouraging: a single set of weights can be trained to be two quite different models at once, and the joint training does not just avoid hurting them — it can hand one of them a capability it could never have learned by itself. Whether that survives at scale, with real state-space layers and harder tasks, is wide open. But at this scale it is real, and it is a strange and pleasant result.
+
+The code, both learning curves, and the discriminator are here, runnable on a single GPU:
+
+https://github.com/MikeyBeez/dual-mixer
