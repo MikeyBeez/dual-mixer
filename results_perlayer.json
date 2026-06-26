@@ -1,0 +1,8 @@
+{
+  "attn_only": 1.0,
+  "ssm_only": 0.083349609375,
+  "shared_at_attn": 0.08203125,
+  "shared_at_ssm": 0.079638671875,
+  "params_per_model": 440832,
+  "seconds": 84.7
+}

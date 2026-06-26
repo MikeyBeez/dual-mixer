@@ -1,0 +1,9 @@
+{
+  "attn_only": 1.0,
+  "ssm_only": 0.07685546875,
+  "shared_mode": "perforward",
+  "shared_at_attn": 0.999951171875,
+  "shared_at_ssm": 0.080859375,
+  "params_per_model": 489984,
+  "seconds": 265.3
+}
